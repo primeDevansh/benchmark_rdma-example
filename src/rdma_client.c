@@ -552,6 +552,7 @@ int main(int argc, char **argv) {
 		rdma_error("Failed to setup client connection , ret = %d \n", ret);
 		return ret;
 	}
+
 	//memory operations
 	ret = client_remote_memory_ops(&time_it_took_to_write, &time_it_took_to_read);
 	if (ret) {
@@ -564,13 +565,13 @@ int main(int argc, char **argv) {
 		printf("...\nSUCCESS, source and destination buffers match \n");
 
 		//describe statistics
-		printf("\n\nSize of passed data %s is: %f\n", optarg, sizeof(optarg));
+		printf("\n\nSize of passed data %s is: %f\n", src, sizeof(src));
 		printf("\nTime it took to write data to server: %.8f ms\n", time_it_took_to_write);
-		double write_speed_MBps = 1000 * ((sizeof(optarg) / (1024 * 1024)) / time_it_took_to_write);
+		double write_speed_MBps = 1000 * ((sizeof(src) / (1024 * 1024)) / time_it_took_to_write);
 		printf("\nWrite Bandwidth: %.8f MB/s\n", write_speed_MBps);
 
 		printf("\nTime it took to read data from server: %.8f ms\n", time_it_took_to_read);
-		double read_speed_MBps = 1000 * ((sizeof(optarg) / (1024 * 1024)) / time_it_took_to_read);
+		double read_speed_MBps = 1000 * ((sizeof(src) / (1024 * 1024)) / time_it_took_to_read);
 		printf("\nRead Bandwidth: %.8f MB/s\n", read_speed_MBps);
 	}
 	ret = client_disconnect_and_clean();
