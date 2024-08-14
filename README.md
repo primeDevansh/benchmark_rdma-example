@@ -29,7 +29,7 @@ make
  
 ###### server
 ```text
-./bin/rdma_server
+./bin/rdma_server -a 127.0.0.1
 ```
 ###### client
 ```text
