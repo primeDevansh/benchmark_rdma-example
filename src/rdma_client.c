@@ -306,13 +306,15 @@ static int client_xchange_metadata_with_server()
  * 1) RDMA write from src -> remote buffer 
  * 2) RDMA read from remote bufer -> dst
  */ 
-static int client_remote_memory_ops() 
+static int client_remote_memory_ops(double* time_it_took_to_write, double* time_it_took_to_read) 
 {
 	struct ibv_wc wc;
+
+	struct timeval t1, t2;
+    double elapsedTime;
+
 	int ret = -1;
-	client_dst_mr = rdma_buffer_register(pd,
-			dst,
-			strlen(src),
+	client_dst_mr = rdma_buffer_register(pd, dst, strlen(src),
 			(IBV_ACCESS_LOCAL_WRITE | 
 			 IBV_ACCESS_REMOTE_WRITE | 
 			 IBV_ACCESS_REMOTE_READ));
@@ -336,23 +338,29 @@ static int client_remote_memory_ops()
 	client_send_wr.wr.rdma.rkey = server_metadata_attr.stag.remote_stag;
 	client_send_wr.wr.rdma.remote_addr = server_metadata_attr.address;
 	/* Now we post it */
-	ret = ibv_post_send(client_qp, 
-		       &client_send_wr,
-	       &bad_client_send_wr);
+
+	gettimeofday(&t1, NULL);
+
+	ret = ibv_post_send(client_qp, &client_send_wr, &bad_client_send_wr);
 	if (ret) {
 		rdma_error("Failed to write client src buffer, errno: %d \n", 
 				-errno);
 		return -errno;
 	}
 	/* at this point we are expecting 1 work completion for the write */
-	ret = process_work_completion_events(io_completion_channel, 
-			&wc, 1);
+	ret = process_work_completion_events(io_completion_channel, &wc, 1);
 	if(ret != 1) {
 		rdma_error("We failed to get 1 work completions , ret = %d \n",
 				ret);
 		return ret;
 	}
 	debug("Client side WRITE is complete \n");
+
+	gettimeofday(&t2, NULL);
+	elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;      // sec to ms
+    elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;   // us to ms
+	*time_it_took_to_write = elapsedTime;
+
 	/* Now we prepare a READ using same variables but for destination */
 	client_send_sge.addr = (uint64_t) client_dst_mr->addr;
 	client_send_sge.length = (uint32_t) client_dst_mr->length;
@@ -367,6 +375,8 @@ static int client_remote_memory_ops()
 	client_send_wr.wr.rdma.rkey = server_metadata_attr.stag.remote_stag;
 	client_send_wr.wr.rdma.remote_addr = server_metadata_attr.address;
 	/* Now we post it */
+
+	gettimeofday(&t1, NULL);
 	ret = ibv_post_send(client_qp, 
 		       &client_send_wr,
 	       &bad_client_send_wr);
@@ -383,7 +393,13 @@ static int client_remote_memory_ops()
 				ret);
 		return ret;
 	}
+	gettimeofday(&t2, NULL);
 	debug("Client side READ is complete \n");
+
+	elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;      // sec to ms
+    elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;   // us to ms
+	*time_it_took_to_read = elapsedTime;
+
 	return 0;
 }
 
@@ -461,6 +477,8 @@ void usage() {
 }
 
 int main(int argc, char **argv) {
+	double time_it_took_to_write, time_it_took_to_read;
+
 	struct sockaddr_in server_sockaddr;
 	int ret, option;
 	bzero(&server_sockaddr, sizeof server_sockaddr);
@@ -534,7 +552,8 @@ int main(int argc, char **argv) {
 		rdma_error("Failed to setup client connection , ret = %d \n", ret);
 		return ret;
 	}
-	ret = client_remote_memory_ops();
+	//memory operations
+	ret = client_remote_memory_ops(&time_it_took_to_write, &time_it_took_to_read);
 	if (ret) {
 		rdma_error("Failed to finish remote memory ops, ret = %d \n", ret);
 		return ret;
@@ -543,6 +562,16 @@ int main(int argc, char **argv) {
 		rdma_error("src and dst buffers do not match \n");
 	} else {
 		printf("...\nSUCCESS, source and destination buffers match \n");
+
+		//describe statistics
+		printf("\n\nSize of passed data %s is: %f\n", optarg, sizeof(optarg));
+		printf("\nTime it took to write data to server: %.8f ms\n", time_it_took_to_write);
+		double write_speed_MBps = 1000 * ((sizeof(optarg) / (1024 * 1024)) / time_it_took_to_write);
+		printf("\nWrite Bandwidth: %.8f MB/s\n", write_speed_MBps);
+
+		printf("\nTime it took to read data from server: %.8f ms\n", time_it_took_to_read);
+		double read_speed_MBps = 1000 * ((sizeof(optarg) / (1024 * 1024)) / time_it_took_to_read);
+		printf("\nRead Bandwidth: %.8f MB/s\n", read_speed_MBps);
 	}
 	ret = client_disconnect_and_clean();
 	if (ret) {
